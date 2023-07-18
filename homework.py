@@ -5,6 +5,9 @@ import time
 from dotenv import load_dotenv
 import requests
 import telegram
+from http import HTTPStatus
+
+from exceptions import HTTPStatusError, RequestError
 
 load_dotenv()
 
@@ -18,6 +21,7 @@ TELEGRAM_TOKEN = os.getenv('TOKEN_BOT')
 TELEGRAM_CHAT_ID = os.getenv('CHAT_ID')
 
 RETRY_PERIOD = 600
+MONTH_AGO = 5000000
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
@@ -31,22 +35,18 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    message = '''Отсутствует обязательная переменная окружения: {variable}.
+    message = '''Отсутствует обязательная переменная окружения.
                 Программа принудительно остановлена.'''
+    tokens = (PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
 
-    if (PRACTICUM_TOKEN is None):
-        logging.critical(message.format(variable='PRACTICUM_TOKEN'))
-        raise SystemExit
-    elif (TELEGRAM_TOKEN is None):
-        logging.critical(message.format(variable='TELEGRAM_TOKEN'))
-        raise SystemExit
-    elif (TELEGRAM_CHAT_ID is None):
-        logging.critical(message.format(variable='TELEGRAM_CHAT_ID'))
+    if not all(tokens):
+        logging.critical(message)
         raise SystemExit
 
 
 def send_message(bot, message):
     """Отправка сообщениея в Telegram чат."""
+    logging.debug('Начало отправки сообщения')
     try:
         bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
@@ -60,6 +60,7 @@ def send_message(bot, message):
 
 def get_api_answer(timestamp):
     """Отправляет запрос к единственному эндпоинту API-сервиса."""
+    logging.debug('Начало отправки запроса к API')
     payload = {'from_date': timestamp}
     try:
         homework_statuses = requests.get(
@@ -68,33 +69,38 @@ def get_api_answer(timestamp):
             params=payload
         )
     except requests.exceptions.RequestException:
-        logging.error('Сбой при запросе к эндпоинту')
-        raise Exception
-    if homework_statuses.status_code != 200:
-        logging.error('API домашки возвращает код, отличный от 200')
-        raise Exception
+        raise RequestError
+
+    if homework_statuses.status_code != HTTPStatus.OK:
+        raise HTTPStatusError(homework_statuses)
     else:
         return homework_statuses.json()
 
 
 def check_response(response):
     """Проверяет ответ API на соответствие документации."""
-    if (type(response) != dict):
+    if not isinstance(response, dict):
         raise TypeError('Получен список вместо ожидаемого словаря')
+    if 'homeworks' not in response:
+        raise KeyError('Ключ "homeworks" отсутствует в словаре response')
+    if 'current_date' not in response:
+        raise KeyError('Ключ "current_date" отсутствует в словаре response')
 
     homeworks = response.get('homeworks')
-    if (type(homeworks) != list):
+
+    if not isinstance(homeworks, list):
         raise TypeError('Данные приходят не в виде списка')
 
 
 def parse_status(homework):
     """Извлекает статус домашней работы."""
-    try:
-        homework_name = homework['homework_name']
-    except KeyError:
-        logging.error('В ответе API домашки нет ключа `homework_name`')
-
+    if 'homework_name' not in homework:
+        raise KeyError('В ответе API домашки нет ключа `homework_name`')
+    homework_name = homework['homework_name']
+    if 'status' not in homework:
+        raise KeyError('В ответе API домашки нет ключа `status`')
     status = homework['status']
+
     try:
         verdict = HOMEWORK_VERDICTS[status]
     except KeyError:
@@ -114,10 +120,14 @@ def main():
 
     while True:
         try:
-            response = get_api_answer(timestamp - 5000000)
+            response = get_api_answer(timestamp - MONTH_AGO)
             check_response(response)
             homeworks = response.get('homeworks')
-            message = parse_status(homeworks[0])
+            if not homeworks:
+                message = 'Нет новых обновлений'
+            else:
+                message = parse_status(homeworks[0])
+
             if message != status:
                 send_message(bot, message)
                 status = message
