@@ -35,13 +35,8 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    message = '''Отсутствует обязательная переменная окружения.
-                Программа принудительно остановлена.'''
     tokens = (PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
-
-    if not all(tokens):
-        logging.critical(message)
-        raise SystemExit
+    return all(tokens)
 
 
 def send_message(bot, message):
@@ -69,12 +64,12 @@ def get_api_answer(timestamp):
             params=payload
         )
     except requests.exceptions.RequestException:
-        raise RequestError
+        raise RequestError('Сбой при запросе к эндпоинту')
 
     if homework_statuses.status_code != HTTPStatus.OK:
         raise HTTPStatusError(homework_statuses)
-    else:
-        return homework_statuses.json()
+
+    return homework_statuses.json()
 
 
 def check_response(response):
@@ -101,17 +96,19 @@ def parse_status(homework):
         raise KeyError('В ответе API домашки нет ключа `status`')
     status = homework['status']
 
-    try:
-        verdict = HOMEWORK_VERDICTS[status]
-    except KeyError:
-        logging.error('Неожиданный статус домашней работы в ответе API')
+    if status not in HOMEWORK_VERDICTS:
+        raise KeyError('Неожиданный статус домашней работы в ответе API')
+    verdict = HOMEWORK_VERDICTS[status]
 
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
     """Основная логика работы бота."""
-    check_tokens()
+    if not check_tokens():
+        logging.critical('''Отсутствует обязательная переменная окружения.
+                         Программа принудительно остановлена.''')
+        raise SystemExit
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
