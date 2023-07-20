@@ -1,11 +1,11 @@
 import logging
 import os
 import time
+from http import HTTPStatus
 
 from dotenv import load_dotenv
 import requests
 import telegram
-from http import HTTPStatus
 
 from exceptions import HTTPStatusError, RequestError
 
@@ -106,8 +106,8 @@ def parse_status(homework):
 def main():
     """Основная логика работы бота."""
     if not check_tokens():
-        logging.critical('''Отсутствует обязательная переменная окружения.
-                         Программа принудительно остановлена.''')
+        logging.critical("""Отсутствует обязательная переменная окружения.
+                         Программа принудительно остановлена.""")
         raise SystemExit
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
