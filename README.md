@@ -1,2 +1,2 @@
 # homework_bot
-python telegram bot
+Телеграм-бот, который обращается к API сервису и узнает статус работы с помощью библиотеки python-telegram-bot.
